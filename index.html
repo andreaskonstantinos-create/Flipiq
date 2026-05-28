@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FlipIQ - London Car Analyser</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Inter', sans-serif; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes fadeUp { from { opacity:0; transform:translateY(18px); } to { opacity:1; transform:translateY(0); } }
+@keyframes shimmer { 0%,100% { opacity:.3; } 50% { opacity:1; } }
+input:focus { outline: none; }
+input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; }
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); border-radius: 2px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const WORKER_URL = "https://flipiq-dvla.andreaskonstantinos.workers.dev";
+const ACCENT = "#059669";
+const ACCENT_LIGHT = "#d1fae5";
+const FONT = "'Inter', sans-serif";
+
+const THEMES = {
+  light: {
+    bg: "#ffffff", bg2: "#f8fafc", bg3: "#f1f5f9",
+    text: "#0f172a", text2: "#475569", text3: "#94a3b8",
+    border: "#e2e8f0", navBg: "#ffffff", cardBg: "#ffffff", inputBg: "#ffffff",
+    marginGoodBg: "#f0fdf4", marginGoodBorder: "#bbf7d0",
+    marginBadBg: "#fef2f2", marginBadBorder: "#fecaca",
+    aiBg: "#f0fdf4", aiBorder: "#bbf7d0", shadow: "0 1px 4px rgba(0,0,0,0.06)",
+  },
+  dark: {
+    bg: "#0f172a", bg2: "#0f172a", bg3: "#1e293b",
+    text: "#f1f5f9", text2: "#94a3b8", text3: "#475569",
+    border: "#1e293b", navBg: "#0d1526", cardBg: "#1a2538", inputBg: "#1e293b",
+    marginGoodBg: "rgba(16,185,129,0.08)", marginGoodBorder: "rgba(16,185,129,0.2)",
+    marginBadBg: "rgba(239,68,68,0.08)", marginBadBorder: "rgba(239,68,68,0.2)",
+    aiBg: "rgba(5,150,105,0.07)", aiBorder: "rgba(5,150,105,0.2)",
+    shadow: "0 1px 8px rgba(0,0,0,0.3)",
+  }
+};
+
+function checkULEZ(fuelType, year) {
+  if (!fuelType || !year) return null;
+  const fuel = fuelType.toUpperCase();
+  if (fuel === "PETROL" || fuel === "HYBRID ELECTRIC (PETROL)") return year >= 2006;
+  if (fuel === "DIESEL") return year >= 2015;
+  if (fuel.includes("ELECTRIC")) return true;
+  return null;
+}
+
+function getYearFromDate(dateStr) {
+  if (!dateStr) return null;
+  return parseInt(dateStr.substring(0, 4));
+}
+
+const SELLING_TIPS = {
+  "PETROL": ["Facebook Marketplace e Gumtree convertem bem", "Mencione consumo de combustível", "Fotos do interior valorizam muito"],
+  "DIESEL": ["AutoTrader atrai compradores de diesel", "Ressalte km/litro para distâncias longas", "Compradores de vans e famílias preferem diesel"],
+  "ELECTRIC": ["eBay e AutoTrader têm boa procura por elétricos", "Informe autonomia e condição da bateria", "Alta demanda em Londres — vende rápido"],
+  "HYBRID ELECTRIC (PETROL)": ["Alta demanda em Londres por economia", "Ressalte custo por milha", "eBay atrai compradores de fora de Londres"],
+  "DEFAULT": ["Facebook Marketplace e Gumtree convertem bem", "Fotos de qualidade fazem diferença", "Responda mensagens rápido para fechar mais"],
+};
+
+const PLATFORM_META = {
+  autotrader: { label: "AutoTrader", color: "#059669" },
+  ebay:       { label: "eBay",       color: "#6366f1" },
+  gumtree:    { label: "Gumtree",    color: "#0ea5e9" },
+  facebook:   { label: "Facebook",   color: "#8b5cf6" },
+};
+
+function estimateMarketPrices(make, year, engineSize) {
+  const age = 2025 - (year || 2010);
+  let base = 12000 - (age * 600);
+  if (engineSize) { if (engineSize > 2000) base += 1500; else if (engineSize < 1200) base -= 800; }
+  const premiumMakes = ["BMW","MERCEDES","AUDI","VOLKSWAGEN","VOLVO","LEXUS"];
+  if (premiumMakes.includes((make||"").toUpperCase())) base += 2000;
+  base = Math.max(800, base);
+  return { autotrader: Math.round(base*1.08), ebay: Math.round(base*1.02), gumtree: Math.round(base*0.95), facebook: Math.round(base*0.97) };
+}
+
+function estimateAvgDays(fuelType, ulez, year) {
+  let days = 22;
+  if (ulez) days -= 7;
+  if ((fuelType||"").includes("ELECTRIC")) days -= 5;
+  if (year && year >= 2018) days -= 4;
+  if (year && year <= 2010) days += 8;
+  return Math.max(6, Math.min(45, days));
+}
+
+function ScoreRing({ score, T }) {
+  const size = 112, r = 44;
+  const circ = 2 * Math.PI * r;
+  const progress = (score / 100) * circ;
+  const color = score >= 75 ? "#059669" : score >= 50 ? "#d97706" : "#dc2626";
+  const label = score >= 75 ? "BOA COMPRA" : score >= 50 ? "ANALISAR" : "EVITAR";
+  return (
+    <div style={{ position: "relative", width: size, height: size, flexShrink: 0 }}>
+      <svg width={size} height={size} style={{ transform: "rotate(-90deg)" }}>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={T.border} strokeWidth={8} />
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth={8}
+          strokeDasharray={`${progress} ${circ}`} strokeLinecap="round"
+          style={{ transition: "stroke-dasharray 1.3s ease" }} />
+      </svg>
+      <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3 }}>
+        <div style={{ fontSize: 28, fontWeight: 800, color, lineHeight: 1 }}>{score}</div>
+        <div style={{ fontSize: 8, color, fontWeight: 700, letterSpacing: 1.5 }}>{label}</div>
+      </div>
+    </div>
+  );
+}
+
+function MarketRow({ platform, value, max, T }) {
+  const meta = PLATFORM_META[platform];
+  const pct = Math.round((value / max) * 100);
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 7 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ width: 8, height: 8, borderRadius: "50%", background: meta.color }} />
+          <span style={{ fontSize: 13, color: T.text2, fontWeight: 500 }}>{meta.label}</span>
+        </div>
+        <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>£{value.toLocaleString()}</span>
+      </div>
+      <div style={{ height: 6, background: T.bg3, borderRadius: 3, overflow: "hidden" }}>
+        <div style={{ height: "100%", width: `${pct}%`, borderRadius: 3, background: meta.color, transition: "width 1.3s cubic-bezier(.16,1,.3,1)" }} />
+      </div>
+    </div>
+  );
+}
+
+function Chip({ children, color, bg, T }) {
+  return <span style={{ display: "inline-flex", alignItems: "center", background: bg||T.bg3, border: `1px solid ${T.border}`, color: color||T.text2, fontSize: 11, fontWeight: 600, padding: "4px 10px", borderRadius: 6, letterSpacing: 0.2 }}>{children}</span>;
+}
+
+function Card({ children, style, T }) {
+  return <div style={{ background: T.cardBg, border: `1px solid ${T.border}`, borderRadius: 16, boxShadow: T.shadow, ...style }}>{children}</div>;
+}
+
+function SectionLabel({ children, T }) {
+  return <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 16 }}>{children}</div>;
+}
+
+function InfoRow({ label, value, T }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: `1px solid ${T.border}` }}>
+      <span style={{ fontSize: 13, color: T.text2 }}>{label}</span>
+      <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{value || "—"}</span>
+    </div>
+  );
+}
+
+function ThemeToggle({ mode, isDark, onChange }) {
+  const next = mode === "system" ? "light" : mode === "light" ? "dark" : "system";
+  const icon = mode === "dark" ? "🌙" : mode === "light" ? "☀️" : (isDark ? "🌙" : "☀️");
+  return (
+    <button onClick={() => onChange(next)} style={{ background: "none", border: "none", padding: 0, width: 20, height: 20, fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", opacity: 0.25, flexShrink: 0, transition: "opacity 0.2s" }}
+      onMouseEnter={e => e.currentTarget.style.opacity="0.6"}
+      onMouseLeave={e => e.currentTarget.style.opacity="0.25"}
+    >{icon}</button>
+  );
+}
+
+function App() {
+  const [themeMode, setThemeMode] = React.useState("system");
+  const [systemDark, setSystemDark] = React.useState(window.matchMedia("(prefers-color-scheme: dark)").matches);
+  React.useEffect(() => {
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const handler = e => setSystemDark(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+  const isDark = themeMode === "dark" || (themeMode === "system" && systemDark);
+  const T = isDark ? THEMES.dark : THEMES.light;
+
+  const [plate, setPlate] = React.useState("");
+  const [price, setPrice] = React.useState("");
+  const [result, setResult] = React.useState(null);
+  const [loading, setLoading] = React.useState(false);
+  const [loadingMsg, setLoadingMsg] = React.useState("");
+  const [error, setError] = React.useState("");
+  const [aiAnalysis, setAiAnalysis] = React.useState("");
+  const [aiLoading, setAiLoading] = React.useState(false);
+  const [focusPlate, setFocusPlate] = React.useState(false);
+  const [focusPrice, setFocusPrice] = React.useState(false);
+
+  const formatPlate = v => v.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 7);
+
+  const analyse = async () => {
+    setError(""); setResult(null); setAiAnalysis("");
+    const cleanPlate = plate.replace(/\s/g, "").toUpperCase();
+    const buyPrice = parseFloat(price);
+    if (!cleanPlate || cleanPlate.length < 4) return setError("Insira uma placa válida do UK.");
+    if (!buyPrice || buyPrice <= 0) return setError("Insira o preço de compra.");
+    setLoading(true);
+    setLoadingMsg("Consultando DVLA...");
+
+    let make="", colour="", fuelType="", engineSize=null, yearOfManufacture=null;
+    let motStatus="", motExpiry=null, taxStatus="", taxDueDate=null, co2=null, euroStatus=null;
+
+    try {
+      const res = await fetch(WORKER_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plate: cleanPlate }),
+      });
+      if (res.status === 404) { setError("Placa não encontrada na DVLA."); setLoading(false); return; }
+      if (!res.ok) throw new Error("error");
+      const d = await res.json();
+      make = d.make||""; colour = d.colour||""; fuelType = d.fuelType||"";
+      engineSize = d.engineCapacity||null;
+      yearOfManufacture = d.yearOfManufacture||getYearFromDate(d.monthOfFirstRegistration);
+      motStatus = d.motStatus||""; motExpiry = d.motExpiryDate||null;
+      taxStatus = d.taxStatus||""; taxDueDate = d.taxDueDate||null;
+      co2 = d.co2Emissions||null; euroStatus = d.euroStatus||null;
+    } catch {
+      setError("Não foi possível conectar à DVLA. Tente novamente.");
+      setLoading(false); return;
+    }
+
+    setLoadingMsg("Verificando ULEZ e calculando mercado...");
+    await new Promise(r => setTimeout(r, 500));
+
+    const ulez = checkULEZ(fuelType, yearOfManufacture);
+    const market = estimateMarketPrices(make, yearOfManufacture, engineSize);
+    const avgMarket = Math.round(Object.values(market).reduce((a,b)=>a+b,0)/4);
+    const suggestedPrice = Math.round(avgMarket * 0.97);
+    const margin = suggestedPrice - buyPrice;
+    const marginPct = Math.round((margin/buyPrice)*100);
+    const avgDays = estimateAvgDays(fuelType, ulez, yearOfManufacture);
+
+    let score = 50;
+    if (marginPct>=25) score+=25; else if (marginPct>=15) score+=15;
+    else if (marginPct>=5) score+=5; else if (marginPct<0) score-=30;
+    if (ulez) score+=10;
+    if (motStatus==="Valid") score+=8;
+    if (taxStatus==="Taxed") score+=5;
+    score = Math.max(5, Math.min(98, score));
+
+    setResult({ plate:cleanPlate, make, colour, fuelType, engineSize, yearOfManufacture, motStatus, motExpiry, taxStatus, taxDueDate, co2, euroStatus, ulez, market, avgMarket, suggestedPrice, margin, marginPct, avgDays, buyPrice, score, fuelKey:fuelType||"DEFAULT" });
+    setLoading(false);
+
+    setAiLoading(true);
+    try {
+      const prompt = `Você é um especialista em compra e venda de carros usados no mercado de Londres.\n\nDados DVLA:\n- Placa: ${cleanPlate}\n- Make: ${make}\n- Ano: ${yearOfManufacture}\n- Combustível: ${fuelType}\n- Motor: ${engineSize?engineSize+"cc":"?"}\n- Cor: ${colour}\n- MOT: ${motStatus} ${motExpiry||""}\n- Tax: ${taxStatus}\n- ULEZ: ${ulez===true?"APROVADO":ulez===false?"NÃO APROVADO":"?"}\n- CO2: ${co2||"?"}\n- Preço compra: £${buyPrice}\n- Mercado médio: £${avgMarket}\n- Margem: £${margin} (${marginPct}%)\n- Tempo venda estimado: ${avgDays} dias\n\nAnalise em PORTUGUÊS BRASILEIRO, máximo 4 parágrafos: 1) Boa compra? 2) Riscos 3) Precificação 4) Canais de venda`;
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 800, messages: [{ role:"user", content:prompt }] })
+      });
+      const data = await res.json();
+      setAiAnalysis(data.content?.find(b=>b.type==="text")?.text||"");
+    } catch { setAiAnalysis("Análise IA indisponível."); }
+    setAiLoading(false);
+  };
+
+  const maxMarket = result ? Math.max(...Object.values(result.market)) : 1;
+  const tips = result ? (SELLING_TIPS[result.fuelKey]||SELLING_TIPS["DEFAULT"]) : [];
+  const speedColor = result ? (result.avgDays<=14?"#059669":result.avgDays<=25?"#d97706":"#dc2626") : T.text;
+
+  return (
+    <div style={{ minHeight:"100vh", background:T.bg2, color:T.text, fontFamily:FONT, transition:"background 0.3s, color 0.3s" }}>
+      <div style={{ background:T.navBg, borderBottom:`1px solid ${T.border}`, padding:"0 24px", transition:"background 0.3s" }}>
+        <div style={{ maxWidth:700, margin:"0 auto", height:64, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            <div style={{ width:36, height:36, borderRadius:10, background:ACCENT, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>🚗</div>
+            <div>
+              <div style={{ fontSize:18, fontWeight:800, letterSpacing:-0.5 }}>Flip<span style={{ color:ACCENT }}>IQ</span></div>
+              <div style={{ fontSize:10, color:T.text3, fontWeight:500, letterSpacing:1 }}>LONDON CAR ANALYSER</div>
+            </div>
+          </div>
+          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+            <ThemeToggle mode={themeMode} isDark={isDark} onChange={setThemeMode} />
+            <span style={{ background:ACCENT_LIGHT, color:ACCENT, fontSize:10, fontWeight:700, padding:"4px 12px", borderRadius:20, letterSpacing:1 }}>LIVE · DVLA</span>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ maxWidth:700, margin:"0 auto", padding:"32px 20px 80px" }}>
+        <div style={{ marginBottom:28 }}>
+          <h1 style={{ fontSize:22, fontWeight:700, marginBottom:6, letterSpacing:-0.5 }}>Analise o carro antes de comprar</h1>
+          <p style={{ color:T.text2, fontSize:14, lineHeight:1.7 }}>Dados reais da DVLA — insira a placa e o valor que vai pagar.</p>
+        </div>
+
+        <Card T={T} style={{ padding:24, marginBottom:24 }}>
+          <div style={{ display:"flex", gap:16, flexWrap:"wrap", marginBottom:16 }}>
+            {[
+              { key:"plate", label:"Placa do veículo (UK)", val:plate, onChange:e=>setPlate(formatPlate(e.target.value)), focus:focusPlate, setFocus:setFocusPlate, placeholder:"AB12CDE", type:"text", ls:4, fs:22 },
+              { key:"price", label:"Preço de compra (£)", val:price, onChange:e=>setPrice(e.target.value.replace(/[^0-9.]/g,"")), focus:focusPrice, setFocus:setFocusPrice, placeholder:"3500", type:"number", ls:1, fs:22 }
+            ].map(f => (
+              <div key={f.key} style={{ flex:"1 1 200px" }}>
+                <label style={{ fontSize:12, color:T.text2, fontWeight:600, display:"block", marginBottom:8 }}>{f.label}</label>
+                <input value={f.val} onChange={f.onChange} placeholder={f.placeholder} type={f.type}
+                  onFocus={()=>f.setFocus(true)} onBlur={()=>f.setFocus(false)}
+                  style={{ width:"100%", background:T.inputBg, border:`1.5px solid ${f.focus?ACCENT:T.border}`, boxShadow:f.focus?`0 0 0 3px ${ACCENT}18`:"none", borderRadius:10, padding:"12px 16px", color:T.text, fontSize:f.fs, fontFamily:FONT, fontWeight:700, letterSpacing:f.ls, transition:"all 0.2s" }} />
+              </div>
+            ))}
+          </div>
+          {error && <div style={{ background:"#fef2f2", border:"1px solid #fecaca", borderRadius:8, padding:"10px 14px", marginBottom:14, color:"#dc2626", fontSize:13 }}>⚠ {error}</div>}
+          <button onClick={analyse} disabled={loading} style={{ width:"100%", padding:"14px", background:loading?T.bg3:ACCENT, border:"none", borderRadius:10, color:loading?T.text3:"#fff", fontSize:15, fontWeight:700, cursor:loading?"not-allowed":"pointer", fontFamily:FONT, transition:"all 0.2s", boxShadow:!loading?`0 2px 12px ${ACCENT}33`:"none" }}>
+            {loading ? <span style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}><span style={{ width:16, height:16, border:`2px solid ${T.border}`, borderTop:`2px solid ${ACCENT}`, borderRadius:"50%", display:"inline-block", animation:"spin 0.7s linear infinite" }}/>{loadingMsg}</span> : "Analisar carro →"}
+          </button>
+        </Card>
+
+        {result && !loading && (
+          <div style={{ animation:"fadeUp 0.45s ease" }}>
+            <Card T={T} style={{ padding:24, marginBottom:14 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:20, flexWrap:"wrap" }}>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:11, color:ACCENT, fontWeight:600, letterSpacing:1, marginBottom:8, textTransform:"uppercase" }}>Dados DVLA · {result.plate}</div>
+                  <div style={{ fontSize:26, fontWeight:800, letterSpacing:-0.5, marginBottom:4 }}>{result.yearOfManufacture} {result.make}</div>
+                  <div style={{ color:T.text3, fontSize:13, marginBottom:16 }}>{result.fuelType} · {result.engineSize?result.engineSize+"cc":""} · {result.colour}</div>
+                  <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+                    {result.ulez!==null && <Chip T={T} color={result.ulez?"#059669":"#dc2626"} bg={result.ulez?"#d1fae5":"#fee2e2"}>{result.ulez?"✓ ULEZ Free":"✗ ULEZ Charge"}</Chip>}
+                    <Chip T={T} color={result.motStatus==="Valid"?"#059669":"#dc2626"} bg={result.motStatus==="Valid"?"#d1fae5":"#fee2e2"}>MOT {result.motStatus==="Valid"?"✓":"✗"} {result.motExpiry||""}</Chip>
+                    <Chip T={T} color={result.taxStatus==="Taxed"?"#059669":"#dc2626"} bg={result.taxStatus==="Taxed"?"#d1fae5":"#fee2e2"}>Tax {result.taxStatus==="Taxed"?"✓":result.taxStatus}</Chip>
+                    {result.co2 && <Chip T={T}>CO₂ {result.co2}g/km</Chip>}
+                  </div>
+                </div>
+                <ScoreRing score={result.score} T={T} />
+              </div>
+              <div style={{ marginTop:20, borderTop:`1px solid ${T.border}`, paddingTop:16 }}>
+                <SectionLabel T={T}>Detalhes do registo</SectionLabel>
+                <InfoRow T={T} label="Fabricante" value={result.make} />
+                <InfoRow T={T} label="Ano" value={result.yearOfManufacture} />
+                <InfoRow T={T} label="Combustível" value={result.fuelType} />
+                <InfoRow T={T} label="Motor" value={result.engineSize?result.engineSize+" cc":null} />
+                <InfoRow T={T} label="Cor" value={result.colour} />
+                {result.co2 && <InfoRow T={T} label="CO₂" value={result.co2+" g/km"} />}
+                {result.euroStatus && <InfoRow T={T} label="Norma Euro" value={result.euroStatus} />}
+                <InfoRow T={T} label="Tax até" value={result.taxDueDate} />
+              </div>
+            </Card>
+
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10, marginBottom:10 }}>
+              {[
+                { label:"Você paga", value:`£${result.buyPrice.toLocaleString()}`, color:T.text },
+                { label:"Mercado estimado", value:`£${result.avgMarket.toLocaleString()}`, color:"#d97706" },
+                { label:"Preço sugerido", value:`£${result.suggestedPrice.toLocaleString()}`, color:"#059669" },
+              ].map(s => (
+                <Card key={s.label} T={T} style={{ padding:16 }}>
+                  <div style={{ fontSize:10, color:T.text3, fontWeight:600, letterSpacing:1, textTransform:"uppercase", marginBottom:8 }}>{s.label}</div>
+                  <div style={{ fontSize:20, fontWeight:800, color:s.color }}>{s.value}</div>
+                </Card>
+              ))}
+            </div>
+
+            <div style={{ background:result.margin>0?T.marginGoodBg:T.marginBadBg, border:`1px solid ${result.margin>0?T.marginGoodBorder:T.marginBadBorder}`, borderRadius:14, padding:"18px 22px", marginBottom:14, display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:12 }}>
+              <div>
+                <div style={{ fontSize:12, color:T.text2, fontWeight:600, marginBottom:3 }}>Margem estimada de lucro</div>
+                <div style={{ fontSize:12, color:T.text3 }}>Preço sugerido menos o que vai pagar</div>
+              </div>
+              <div style={{ textAlign:"right" }}>
+                <div style={{ fontSize:30, fontWeight:800, color:result.margin>0?"#059669":"#dc2626", lineHeight:1 }}>{result.margin>0?"+":""}£{result.margin.toLocaleString()}</div>
+                <div style={{ fontSize:13, color:result.margin>0?"#059669":"#dc2626", fontWeight:600, marginTop:2 }}>{result.marginPct>0?"+":""}{result.marginPct}% de retorno</div>
+              </div>
+            </div>
+
+            <Card T={T} style={{ padding:22, marginBottom:14 }}>
+              <SectionLabel T={T}>Preços estimados por plataforma</SectionLabel>
+              {Object.entries(result.market).map(([p,v]) => <MarketRow key={p} platform={p} value={v} max={maxMarket} T={T} />)}
+            </Card>
+
+            <div style={{ display:"grid", gridTemplateColumns:"130px 1fr", gap:10, marginBottom:14 }}>
+              <Card T={T} style={{ padding:20, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", textAlign:"center" }}>
+                <div style={{ fontSize:10, color:T.text3, fontWeight:600, letterSpacing:1, textTransform:"uppercase", marginBottom:10 }}>Tempo médio de venda</div>
+                <div style={{ fontSize:50, fontWeight:800, color:speedColor, lineHeight:1 }}>{result.avgDays}</div>
+                <div style={{ fontSize:11, color:T.text3, marginTop:5 }}>dias · Londres</div>
+              </Card>
+              <Card T={T} style={{ padding:20 }}>
+                <SectionLabel T={T}>Dicas de venda</SectionLabel>
+                {tips.map((tip,i) => (
+                  <div key={i} style={{ display:"flex", gap:10, marginBottom:12, alignItems:"flex-start" }}>
+                    <div style={{ width:20, height:20, borderRadius:6, background:ACCENT_LIGHT, color:ACCENT, display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:700, flexShrink:0, marginTop:1 }}>{i+1}</div>
+                    <span style={{ fontSize:13, color:T.text2, lineHeight:1.6 }}>{tip}</span>
+                  </div>
+                ))}
+              </Card>
+            </div>
+
+            <Card T={T} style={{ padding:24, background:T.aiBg, border:`1px solid ${T.aiBorder}` }}>
+              <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:16 }}>
+                <div style={{ width:30, height:30, borderRadius:8, background:ACCENT_LIGHT, display:"flex", alignItems:"center", justifyContent:"center", fontSize:15 }}>🤖</div>
+                <div style={{ fontSize:11, color:ACCENT, fontWeight:700, letterSpacing:1, textTransform:"uppercase" }}>Análise IA · Mercado de Londres</div>
+                {aiLoading && <div style={{ display:"flex", gap:4, marginLeft:4 }}>{[0,1,2].map(i=><div key={i} style={{ width:5, height:5, borderRadius:"50%", background:ACCENT, animation:`shimmer 1.2s ${i*0.2}s infinite` }}/>)}</div>}
+              </div>
+              {aiLoading
+                ? <div style={{ color:T.text3, fontSize:13, fontStyle:"italic" }}>Gerando análise personalizada...</div>
+                : <div style={{ fontSize:14, color:T.text2, lineHeight:1.9, whiteSpace:"pre-wrap" }}>{aiAnalysis}</div>}
+            </Card>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.render(<App />, document.getElementById('root'));
+</script>
+</body>
+</html>

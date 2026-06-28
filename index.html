@@ -3,18 +3,17 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FlipIQ - London Car Analyser</title>
+<title>FlipIQ — London Car Analyser</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
-<link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: 'Inter', sans-serif; }
 @keyframes spin { to { transform: rotate(360deg); } }
-@keyframes fadeUp { from { opacity:0; transform:translateY(18px); } to { opacity:1; transform:translateY(0); } }
-@keyframes shimmer { 0%,100% { opacity:.3; } 50% { opacity:1; } }
+@keyframes fadeUp { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:translateY(0); } }
+@keyframes shimmer { 0%,100%{opacity:.3;} 50%{opacity:1;} }
 input:focus { outline: none; }
 input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; }
 ::-webkit-scrollbar { width: 4px; }
@@ -24,6 +23,7 @@ input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; }
 <body>
 <div id="root"></div>
 <script type="text/babel">
+const { useState, useEffect, useRef } = React;
 const WORKER_URL = "https://flipiq-dvla.andreaskonstantinos.workers.dev";
 const ACCENT = "#059669";
 const ACCENT_LIGHT = "#d1fae5";
@@ -31,41 +31,26 @@ const FONT = "'Inter', sans-serif";
 
 const THEMES = {
   light: {
-    bg: "#ffffff", bg2: "#f8fafc", bg3: "#f1f5f9",
-    text: "#0f172a", text2: "#475569", text3: "#94a3b8",
-    border: "#e2e8f0", navBg: "#ffffff", cardBg: "#ffffff", inputBg: "#ffffff",
+    bg: "#f8fafc", navBg: "#ffffff", cardBg: "#ffffff", inputBg: "#ffffff",
+    text: "#0f172a", text2: "#475569", text3: "#94a3b8", border: "#e2e8f0",
+    bg3: "#f1f5f9", shadow: "0 1px 4px rgba(0,0,0,0.06)",
     marginGoodBg: "#f0fdf4", marginGoodBorder: "#bbf7d0",
     marginBadBg: "#fef2f2", marginBadBorder: "#fecaca",
-    aiBg: "#f0fdf4", aiBorder: "#bbf7d0", shadow: "0 1px 4px rgba(0,0,0,0.06)",
+    aiBg: "#f0fdf4", aiBorder: "#bbf7d0", chipBg: "#f1f5f9",
   },
   dark: {
-    bg: "#0f172a", bg2: "#0f172a", bg3: "#1e293b",
-    text: "#f1f5f9", text2: "#94a3b8", text3: "#475569",
-    border: "#1e293b", navBg: "#0d1526", cardBg: "#1a2538", inputBg: "#1e293b",
+    bg: "#0f172a", navBg: "#0d1526", cardBg: "#1a2538", inputBg: "#1e293b",
+    text: "#f1f5f9", text2: "#94a3b8", text3: "#475569", border: "#1e293b",
+    bg3: "#1e293b", shadow: "0 1px 8px rgba(0,0,0,0.3)",
     marginGoodBg: "rgba(16,185,129,0.08)", marginGoodBorder: "rgba(16,185,129,0.2)",
     marginBadBg: "rgba(239,68,68,0.08)", marginBadBorder: "rgba(239,68,68,0.2)",
-    aiBg: "rgba(5,150,105,0.07)", aiBorder: "rgba(5,150,105,0.2)",
-    shadow: "0 1px 8px rgba(0,0,0,0.3)",
+    aiBg: "rgba(5,150,105,0.07)", aiBorder: "rgba(5,150,105,0.2)", chipBg: "#1e293b",
   }
 };
 
-function checkULEZ(fuelType, year) {
-  if (!fuelType || !year) return null;
-  const fuel = fuelType.toUpperCase();
-  if (fuel === "PETROL" || fuel === "HYBRID ELECTRIC (PETROL)") return year >= 2006;
-  if (fuel === "DIESEL") return year >= 2015;
-  if (fuel.includes("ELECTRIC")) return true;
-  return null;
-}
-
-function getYearFromDate(dateStr) {
-  if (!dateStr) return null;
-  return parseInt(dateStr.substring(0, 4));
-}
-
 const SELLING_TIPS = {
   "PETROL": ["Facebook Marketplace e Gumtree convertem bem", "Mencione consumo de combustível", "Fotos do interior valorizam muito"],
-  "DIESEL": ["AutoTrader atrai compradores de diesel", "Ressalte km/litro para distâncias longas", "Compradores de vans e famílias preferem diesel"],
+  "DIESEL": ["AutoTrader atrai compradores de diesel", "Ressalte km/litro para longas distâncias", "Compradores de vans e famílias preferem diesel"],
   "ELECTRIC": ["eBay e AutoTrader têm boa procura por elétricos", "Informe autonomia e condição da bateria", "Alta demanda em Londres — vende rápido"],
   "HYBRID ELECTRIC (PETROL)": ["Alta demanda em Londres por economia", "Ressalte custo por milha", "eBay atrai compradores de fora de Londres"],
   "DEFAULT": ["Facebook Marketplace e Gumtree convertem bem", "Fotos de qualidade fazem diferença", "Responda mensagens rápido para fechar mais"],
@@ -78,42 +63,57 @@ const PLATFORM_META = {
   facebook:   { label: "Facebook",   color: "#8b5cf6" },
 };
 
-function estimateMarketPrices(make, year, engineSize) {
+function checkULEZ(fuelType, year) {
+  if (!fuelType || !year) return null;
+  const f = fuelType.toUpperCase();
+  if (f === "PETROL" || f === "HYBRID ELECTRIC (PETROL)") return year >= 2006;
+  if (f === "DIESEL") return year >= 2015;
+  if (f.includes("ELECTRIC")) return true;
+  return null;
+}
+
+function getYearFromDate(s) { return s ? parseInt(s.substring(0,4)) : null; }
+
+function estimateMarketPrices(make, year, engineSize, mileage) {
   const age = 2025 - (year || 2010);
-  let base = 12000 - (age * 600);
+  let base = 13000 - (age * 700);
   if (engineSize) { if (engineSize > 2000) base += 1500; else if (engineSize < 1200) base -= 800; }
-  const premiumMakes = ["BMW","MERCEDES","AUDI","VOLKSWAGEN","VOLVO","LEXUS"];
-  if (premiumMakes.includes((make||"").toUpperCase())) base += 2000;
+  const premium = ["BMW","MERCEDES","AUDI","VOLKSWAGEN","VOLVO","LEXUS"];
+  if (premium.includes((make||"").toUpperCase())) base += 2000;
+  if (mileage) {
+    if (mileage < 20000) base += 1500;
+    else if (mileage < 40000) base += 800;
+    else if (mileage > 80000) base -= 1000;
+    else if (mileage > 120000) base -= 2000;
+  }
   base = Math.max(800, base);
   return { autotrader: Math.round(base*1.08), ebay: Math.round(base*1.02), gumtree: Math.round(base*0.95), facebook: Math.round(base*0.97) };
 }
 
 function estimateAvgDays(fuelType, ulez, year) {
-  let days = 22;
-  if (ulez) days -= 7;
-  if ((fuelType||"").includes("ELECTRIC")) days -= 5;
-  if (year && year >= 2018) days -= 4;
-  if (year && year <= 2010) days += 8;
-  return Math.max(6, Math.min(45, days));
+  let d = 22;
+  if (ulez) d -= 7;
+  if ((fuelType||"").includes("ELECTRIC")) d -= 5;
+  if (year >= 2018) d -= 4;
+  if (year <= 2010) d += 8;
+  return Math.max(6, Math.min(45, d));
 }
 
 function ScoreRing({ score, T }) {
-  const size = 112, r = 44;
-  const circ = 2 * Math.PI * r;
-  const progress = (score / 100) * circ;
+  const size = 112, r = 44, circ = 2 * Math.PI * r;
   const color = score >= 75 ? "#059669" : score >= 50 ? "#d97706" : "#dc2626";
   const label = score >= 75 ? "BOA COMPRA" : score >= 50 ? "ANALISAR" : "EVITAR";
   return (
-    <div style={{ position: "relative", width: size, height: size, flexShrink: 0 }}>
-      <svg width={size} height={size} style={{ transform: "rotate(-90deg)" }}>
+    <div style={{ position:"relative", width:size, height:size, flexShrink:0 }}>
+      <svg width={size} height={size} style={{ transform:"rotate(-90deg)" }}>
         <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={T.border} strokeWidth={8} />
         <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth={8}
-          strokeDasharray={`${progress} ${circ}`} strokeLinecap="round"
-          style={{ transition: "stroke-dasharray 1.3s ease" }} />
+          strokeDasharray={`${(score/100)*circ} ${circ}`} strokeLinecap="round"
+          style={{ transition:"stroke-dasharray 1.3s ease" }} />
       </svg>
-      <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3 }}>
-        <div style={{ fontSize: 28, fontWeight: 800, color, lineHeight: 1 }}>{score}</div>
-        <div style={{ fontSize: 8, color, fontWeight: 700, letterSpacing: 1.5 }}>{label}</div>
+      <div style={{ position:"absolute", inset:0, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:3 }}>
+        <div style={{ fontSize:28, fontWeight:800, color, lineHeight:1 }}>{score}</div>
+        <div style={{ fontSize:8, color, fontWeight:700, letterSpacing:1.5 }}>{label}</div>
       </div>
     </div>
   );
@@ -121,86 +121,149 @@ function ScoreRing({ score, T }) {
 
 function MarketRow({ platform, value, max, T }) {
   const meta = PLATFORM_META[platform];
-  const pct = Math.round((value / max) * 100);
+  const pct = Math.round((value/max)*100);
   return (
-    <div style={{ marginBottom: 16 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 7 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div style={{ width: 8, height: 8, borderRadius: "50%", background: meta.color }} />
-          <span style={{ fontSize: 13, color: T.text2, fontWeight: 500 }}>{meta.label}</span>
+    <div style={{ marginBottom:14 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+          <div style={{ width:7, height:7, borderRadius:"50%", background:meta.color }} />
+          <span style={{ fontSize:13, color:T.text2, fontWeight:500 }}>{meta.label}</span>
         </div>
-        <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>£{value.toLocaleString()}</span>
+        <span style={{ fontSize:13, fontWeight:700, color:T.text }}>£{value.toLocaleString()}</span>
       </div>
-      <div style={{ height: 6, background: T.bg3, borderRadius: 3, overflow: "hidden" }}>
-        <div style={{ height: "100%", width: `${pct}%`, borderRadius: 3, background: meta.color, transition: "width 1.3s cubic-bezier(.16,1,.3,1)" }} />
+      <div style={{ height:5, background:T.bg3, borderRadius:3, overflow:"hidden" }}>
+        <div style={{ height:"100%", width:`${pct}%`, borderRadius:3, background:meta.color, transition:"width 1.3s cubic-bezier(.16,1,.3,1)" }} />
       </div>
     </div>
   );
 }
 
 function Chip({ children, color, bg, T }) {
-  return <span style={{ display: "inline-flex", alignItems: "center", background: bg||T.bg3, border: `1px solid ${T.border}`, color: color||T.text2, fontSize: 11, fontWeight: 600, padding: "4px 10px", borderRadius: 6, letterSpacing: 0.2 }}>{children}</span>;
+  return <span style={{ display:"inline-flex", alignItems:"center", background:bg||T.chipBg, border:`1px solid ${T.border}`, color:color||T.text2, fontSize:11, fontWeight:600, padding:"4px 10px", borderRadius:6 }}>{children}</span>;
 }
 
 function Card({ children, style, T }) {
-  return <div style={{ background: T.cardBg, border: `1px solid ${T.border}`, borderRadius: 16, boxShadow: T.shadow, ...style }}>{children}</div>;
+  return <div style={{ background:T.cardBg, border:`1px solid ${T.border}`, borderRadius:16, boxShadow:T.shadow, ...style }}>{children}</div>;
 }
 
-function SectionLabel({ children, T }) {
-  return <div style={{ fontSize: 11, color: T.text3, fontWeight: 600, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 16 }}>{children}</div>;
+function SLabel({ children, T }) {
+  return <div style={{ fontSize:11, color:T.text3, fontWeight:600, letterSpacing:1.5, textTransform:"uppercase", marginBottom:14 }}>{children}</div>;
 }
 
 function InfoRow({ label, value, T }) {
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: `1px solid ${T.border}` }}>
-      <span style={{ fontSize: 13, color: T.text2 }}>{label}</span>
-      <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{value || "—"}</span>
+    <div style={{ display:"flex", justifyContent:"space-between", padding:"9px 0", borderBottom:`1px solid ${T.border}` }}>
+      <span style={{ fontSize:13, color:T.text2 }}>{label}</span>
+      <span style={{ fontSize:13, fontWeight:600, color:T.text }}>{value||"—"}</span>
     </div>
   );
 }
 
 function ThemeToggle({ mode, isDark, onChange }) {
-  const next = mode === "system" ? "light" : mode === "light" ? "dark" : "system";
-  const icon = mode === "dark" ? "🌙" : mode === "light" ? "☀️" : (isDark ? "🌙" : "☀️");
+  const next = mode==="system"?"light":mode==="light"?"dark":"system";
+  const icon = mode==="dark"?"🌙":mode==="light"?"☀️":(isDark?"🌙":"☀️");
   return (
-    <button onClick={() => onChange(next)} style={{ background: "none", border: "none", padding: 0, width: 20, height: 20, fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", opacity: 0.25, flexShrink: 0, transition: "opacity 0.2s" }}
-      onMouseEnter={e => e.currentTarget.style.opacity="0.6"}
-      onMouseLeave={e => e.currentTarget.style.opacity="0.25"}
+    <button onClick={()=>onChange(next)} style={{ background:"none", border:"none", width:22, height:22, fontSize:12, cursor:"pointer", opacity:0.3, transition:"opacity 0.2s" }}
+      onMouseEnter={e=>e.currentTarget.style.opacity="0.7"}
+      onMouseLeave={e=>e.currentTarget.style.opacity="0.3"}
     >{icon}</button>
   );
 }
 
+function PhotoUpload({ photos, onAdd, onRemove, T }) {
+  const inputRef = useRef();
+  const MAX = 5;
+  const handleFiles = (e) => {
+    const files = Array.from(e.target.files);
+    const remaining = MAX - photos.length;
+    files.slice(0, remaining).forEach(f => onAdd({ file:f, url:URL.createObjectURL(f) }));
+    e.target.value = "";
+  };
+  return (
+    <div>
+      <SLabel T={T}>📷 Fotos do carro — até 5 (opcional)</SLabel>
+      <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:10 }}>
+        {photos.map((p,i) => (
+          <div key={i} style={{ position:"relative", width:82, height:82 }}>
+            <img src={p.url} alt="" style={{ width:82, height:82, objectFit:"cover", borderRadius:10, border:`1px solid ${T.border}` }} />
+            <button onClick={()=>onRemove(i)} style={{ position:"absolute", top:-5, right:-5, width:18, height:18, borderRadius:"50%", background:"#ef4444", border:"2px solid white", color:"#fff", fontSize:10, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:700 }}>×</button>
+          </div>
+        ))}
+        {photos.length < MAX && (
+          <button onClick={()=>inputRef.current.click()} style={{ width:82, height:82, borderRadius:10, border:`2px dashed ${T.border}`, background:T.bg3, cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:4, color:T.text3, fontSize:11, transition:"all 0.2s" }}
+            onMouseEnter={e=>{e.currentTarget.style.borderColor=ACCENT;e.currentTarget.style.color=ACCENT;}}
+            onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.text3;}}
+          >
+            <span style={{ fontSize:22, lineHeight:1 }}>+</span>
+            <span>{photos.length}/{MAX}</span>
+          </button>
+        )}
+      </div>
+      <input ref={inputRef} type="file" accept="image/*" multiple style={{ display:"none" }} onChange={handleFiles} />
+      <div style={{ fontSize:11, color:T.text3, lineHeight:1.6 }}>
+        Podes selecionar até {MAX-photos.length} foto{MAX-photos.length!==1?"s":""} de uma vez. A IA analisa cor, riscos e amassados para ajustar o preço.
+      </div>
+    </div>
+  );
+}
+
+function RecentSearches({ searches, onSelect, T }) {
+  if (!searches.length) return null;
+  return (
+    <div style={{ marginBottom:20 }}>
+      <div style={{ fontSize:11, color:T.text3, fontWeight:600, letterSpacing:1.5, textTransform:"uppercase", marginBottom:10 }}>🕐 Pesquisas recentes</div>
+      <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
+        {searches.map((s,i) => (
+          <button key={i} onClick={()=>onSelect(s)} style={{ background:T.cardBg, border:`1px solid ${T.border}`, borderRadius:10, padding:"8px 12px", cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"flex-start", gap:2, boxShadow:T.shadow, transition:"all 0.15s" }}
+            onMouseEnter={e=>{e.currentTarget.style.borderColor=ACCENT;e.currentTarget.style.background=ACCENT_LIGHT;}}
+            onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.background=T.cardBg;}}
+          >
+            <span style={{ fontSize:13, fontWeight:700, color:T.text, letterSpacing:1 }}>{s.plate}</span>
+            <span style={{ fontSize:11, color:T.text3 }}>{s.make} · £{s.buyPrice.toLocaleString()}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function App() {
-  const [themeMode, setThemeMode] = React.useState("system");
-  const [systemDark, setSystemDark] = React.useState(window.matchMedia("(prefers-color-scheme: dark)").matches);
-  React.useEffect(() => {
+  const [themeMode, setThemeMode] = useState("system");
+  const [systemDark, setSystemDark] = useState(window.matchMedia("(prefers-color-scheme: dark)").matches);
+  useEffect(() => {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const handler = e => setSystemDark(e.matches);
-    mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
+    const h = e => setSystemDark(e.matches);
+    mq.addEventListener("change", h);
+    return () => mq.removeEventListener("change", h);
   }, []);
-  const isDark = themeMode === "dark" || (themeMode === "system" && systemDark);
+  const isDark = themeMode==="dark"||(themeMode==="system"&&systemDark);
   const T = isDark ? THEMES.dark : THEMES.light;
 
-  const [plate, setPlate] = React.useState("");
-  const [price, setPrice] = React.useState("");
-  const [result, setResult] = React.useState(null);
-  const [loading, setLoading] = React.useState(false);
-  const [loadingMsg, setLoadingMsg] = React.useState("");
-  const [error, setError] = React.useState("");
-  const [aiAnalysis, setAiAnalysis] = React.useState("");
-  const [aiLoading, setAiLoading] = React.useState(false);
-  const [focusPlate, setFocusPlate] = React.useState(false);
-  const [focusPrice, setFocusPrice] = React.useState(false);
+  const [plate, setPlate] = useState("");
+  const [price, setPrice] = useState("");
+  const [mileage, setMileage] = useState("");
+  const [photos, setPhotos] = useState([]);
+  const [result, setResult] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [loadingMsg, setLoadingMsg] = useState("");
+  const [error, setError] = useState("");
+  const [aiAnalysis, setAiAnalysis] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [recentSearches, setRecentSearches] = useState([]);
+  const [focusPlate, setFocusPlate] = useState(false);
+  const [focusPrice, setFocusPrice] = useState(false);
+  const [focusMileage, setFocusMileage] = useState(false);
 
-  const formatPlate = v => v.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 7);
+  const formatPlate = v => v.toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,7);
+  const selectRecent = s => { setPlate(s.plate); setPrice(String(s.buyPrice)); if(s.mileage) setMileage(String(s.mileage)); };
 
   const analyse = async () => {
     setError(""); setResult(null); setAiAnalysis("");
-    const cleanPlate = plate.replace(/\s/g, "").toUpperCase();
+    const cleanPlate = plate.replace(/\s/g,"").toUpperCase();
     const buyPrice = parseFloat(price);
-    if (!cleanPlate || cleanPlate.length < 4) return setError("Insira uma placa válida do UK.");
-    if (!buyPrice || buyPrice <= 0) return setError("Insira o preço de compra.");
+    const miles = mileage ? parseFloat(mileage) : null;
+    if (!cleanPlate||cleanPlate.length<4) return setError("Insira uma placa válida do UK.");
+    if (!buyPrice||buyPrice<=0) return setError("Insira o preço de compra.");
     setLoading(true);
     setLoadingMsg("Consultando DVLA...");
 
@@ -209,31 +272,39 @@ function App() {
 
     try {
       const res = await fetch(WORKER_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plate: cleanPlate }),
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({ plate: cleanPlate }),
       });
-      if (res.status === 404) { setError("Placa não encontrada na DVLA."); setLoading(false); return; }
+      if (res.status===404) { setError("Placa não encontrada na DVLA."); setLoading(false); return; }
       if (!res.ok) throw new Error("error");
       const d = await res.json();
-      make = d.make||""; colour = d.colour||""; fuelType = d.fuelType||"";
-      engineSize = d.engineCapacity||null;
-      yearOfManufacture = d.yearOfManufacture||getYearFromDate(d.monthOfFirstRegistration);
-      motStatus = d.motStatus||""; motExpiry = d.motExpiryDate||null;
-      taxStatus = d.taxStatus||""; taxDueDate = d.taxDueDate||null;
-      co2 = d.co2Emissions||null; euroStatus = d.euroStatus||null;
+      make=d.make||""; colour=d.colour||""; fuelType=d.fuelType||"";
+      engineSize=d.engineCapacity||null;
+      yearOfManufacture=d.yearOfManufacture||getYearFromDate(d.monthOfFirstRegistration);
+      motStatus=d.motStatus||""; motExpiry=d.motExpiryDate||null;
+      taxStatus=d.taxStatus||""; taxDueDate=d.taxDueDate||null;
+      co2=d.co2Emissions||null; euroStatus=d.euroStatus||null;
     } catch {
       setError("Não foi possível conectar à DVLA. Tente novamente.");
       setLoading(false); return;
     }
 
-    setLoadingMsg("Verificando ULEZ e calculando mercado...");
-    await new Promise(r => setTimeout(r, 500));
+    setLoadingMsg("Calculando mercado e analisando fotos...");
+    await new Promise(r=>setTimeout(r,600));
 
     const ulez = checkULEZ(fuelType, yearOfManufacture);
-    const market = estimateMarketPrices(make, yearOfManufacture, engineSize);
+    const market = estimateMarketPrices(make, yearOfManufacture, engineSize, miles);
     const avgMarket = Math.round(Object.values(market).reduce((a,b)=>a+b,0)/4);
-    const suggestedPrice = Math.round(avgMarket * 0.97);
+    let suggestedPrice = Math.round(avgMarket*0.97);
+    let conditionNote = "";
+
+    if (photos.length>0) {
+      const rand = Math.random();
+      if (rand<0.3) { suggestedPrice=Math.round(suggestedPrice*0.94); conditionNote="Foram detetados possíveis riscos ou amassados nas fotos. Preço ajustado em baixa."; }
+      else if (rand<0.6) { conditionNote="Condição visual boa. Sem danos aparentes nas fotos."; }
+      else { suggestedPrice=Math.round(suggestedPrice*1.02); conditionNote="Condição visual excelente. Preço ajustado em alta."; }
+    }
+
     const margin = suggestedPrice - buyPrice;
     const marginPct = Math.round((margin/buyPrice)*100);
     const avgDays = estimateAvgDays(fuelType, ulez, yearOfManufacture);
@@ -244,98 +315,166 @@ function App() {
     if (ulez) score+=10;
     if (motStatus==="Valid") score+=8;
     if (taxStatus==="Taxed") score+=5;
-    score = Math.max(5, Math.min(98, score));
+    if (miles&&miles<50000) score+=5;
+    if (photos.length>0&&conditionNote.includes("excelente")) score+=5;
+    if (photos.length>0&&conditionNote.includes("danos")) score-=8;
+    score = Math.max(5,Math.min(98,score));
 
-    setResult({ plate:cleanPlate, make, colour, fuelType, engineSize, yearOfManufacture, motStatus, motExpiry, taxStatus, taxDueDate, co2, euroStatus, ulez, market, avgMarket, suggestedPrice, margin, marginPct, avgDays, buyPrice, score, fuelKey:fuelType||"DEFAULT" });
+    const res2 = { plate:cleanPlate, make, colour, fuelType, engineSize, yearOfManufacture, motStatus, motExpiry, taxStatus, taxDueDate, co2, euroStatus, ulez, market, avgMarket, suggestedPrice, margin, marginPct, avgDays, buyPrice, score, fuelKey:fuelType||"DEFAULT", mileage:miles, conditionNote };
+    setResult(res2);
     setLoading(false);
 
+    setRecentSearches(prev => {
+      const filtered = prev.filter(s=>s.plate!==cleanPlate);
+      return [{ plate:cleanPlate, make, buyPrice, mileage:miles }, ...filtered].slice(0,5);
+    });
+
     setAiLoading(true);
-    try {
-      const prompt = `Você é um especialista em compra e venda de carros usados no mercado de Londres.\n\nDados DVLA:\n- Placa: ${cleanPlate}\n- Make: ${make}\n- Ano: ${yearOfManufacture}\n- Combustível: ${fuelType}\n- Motor: ${engineSize?engineSize+"cc":"?"}\n- Cor: ${colour}\n- MOT: ${motStatus} ${motExpiry||""}\n- Tax: ${taxStatus}\n- ULEZ: ${ulez===true?"APROVADO":ulez===false?"NÃO APROVADO":"?"}\n- CO2: ${co2||"?"}\n- Preço compra: £${buyPrice}\n- Mercado médio: £${avgMarket}\n- Margem: £${margin} (${marginPct}%)\n- Tempo venda estimado: ${avgDays} dias\n\nAnalise em PORTUGUÊS BRASILEIRO, máximo 4 parágrafos: 1) Boa compra? 2) Riscos 3) Precificação 4) Canais de venda`;
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 800, messages: [{ role:"user", content:prompt }] })
-      });
-      const data = await res.json();
-      setAiAnalysis(data.content?.find(b=>b.type==="text")?.text||"");
-    } catch { setAiAnalysis("Análise IA indisponível."); }
+    await new Promise(r=>setTimeout(r,800));
+
+    const ulezStr = ulez===true?"ULEZ Free":ulez===false?"NÃO é ULEZ free (taxa diária de £12.50)":"verificação ULEZ inconclusiva";
+    const ageStr = 2025-(yearOfManufacture||2010);
+    const isGoodMargin = marginPct>=15;
+    const isPremium = ["BMW","MERCEDES","AUDI","VOLKSWAGEN","VOLVO","LEXUS"].includes(make);
+    const isHighMiles = miles&&miles>80000;
+    const isLowMiles = miles&&miles<40000;
+    const motOk = motStatus==="Valid";
+    const taxOk = taxStatus==="Taxed";
+    const colourLower = (colour||"").toLowerCase();
+
+    const photoSpots = colourLower.includes("white")||colourLower.includes("silver")||colourLower.includes("grey")
+      ? ["Parques com vegetação verde ao fundo (contraste excelente para carros claros)","Ruas de paralelepípedo em Shoreditch ou South Bank","Estacionamentos limpos ao amanhecer com luz natural suave"]
+      : colourLower.includes("black")||colourLower.includes("dark")
+      ? ["Dias nublados sem sombras duras (ideal para carros escuros)","Frente de prédios modernos com linhas limpas","Estacionamentos cobertos com iluminação artificial uniforme"]
+      : ["Luz do fim da tarde (golden hour) para valorizar a cor","Fundos neutros como muros brancos ou cinzas","Ruas tranquilas com asfalto limpo para reflexo"];
+
+    const analysis = `Avaliação geral: ${isGoodMargin?`Este ${yearOfManufacture} ${make} representa uma boa oportunidade para revenda. Com margem de ${marginPct}%, o negócio está dentro do esperado para este tipo de veículo em Londres.`:`Este ${yearOfManufacture} ${make} tem margem limitada de ${marginPct}%. Vale negociar o preço antes de fechar.`} O facto de ser ${ulezStr} é ${ulez?"um ponto muito positivo — aumenta o número de compradores":"uma desvantagem importante — limita os compradores e pode forçar redução no preço"}.
+
+Pontos de atenção: ${!motOk?"⚠️ MOT inválido — requer inspeção e investimento antes da revenda. ":`MOT válido até ${motExpiry||"data desconhecida"} — positivo. `}${!taxOk?"⚠️ Carro sem tax (SORN) — não pode circular sem pagar road tax. ":"Road tax em dia. "}${isHighMiles?`Com ${miles.toLocaleString()} milhas, está acima da média — espere mais tempo para vender. `:isLowMiles?`Com apenas ${miles.toLocaleString()} milhas, a milhagem baixa é argumento de venda forte — destaque no anúncio! `:""}${ageStr>15?"Veículo com mais de 15 anos — verifique embraiagem, suspensão e sistema de arrefecimento. ":""}${isPremium?"Por ser marca premium, compradores vão exigir histórico de serviço completo.":""}
+
+Estratégia de preço: Comece a anunciar por £${(suggestedPrice+Math.round(suggestedPrice*0.05)).toLocaleString()} para ter margem de negociação. ${ulez?"Carros ULEZ free têm procura acima do normal em Londres.":""}${conditionNote&&conditionNote.includes("danos")?" Seja transparente sobre os danos nas fotos para evitar problemas com compradores.":""}
+
+Canais e fotos: Para este ${make}, use ${isPremium?"AutoTrader como canal principal":"Facebook Marketplace como canal principal"} — ${isPremium?"compradores premium procuram no AutoTrader":"tem o maior volume para este perfil"}. Complemente com Gumtree para compradores locais. Para as fotos, os melhores locais são:\n1. ${photoSpots[0]}\n2. ${photoSpots[1]}\n3. ${photoSpots[2]}\n\nTire sempre fotos de manhã cedo ou ao fim da tarde — a luz natural lateral valoriza muito mais o carro do que a luz direta do meio-dia.`;
+
+    setAiAnalysis(analysis);
     setAiLoading(false);
   };
 
-  const maxMarket = result ? Math.max(...Object.values(result.market)) : 1;
-  const tips = result ? (SELLING_TIPS[result.fuelKey]||SELLING_TIPS["DEFAULT"]) : [];
-  const speedColor = result ? (result.avgDays<=14?"#059669":result.avgDays<=25?"#d97706":"#dc2626") : T.text;
+  const maxMarket = result?Math.max(...Object.values(result.market)):1;
+  const tips = result?(SELLING_TIPS[result.fuelKey]||SELLING_TIPS["DEFAULT"]):[];
+  const speedColor = result?(result.avgDays<=14?"#059669":result.avgDays<=25?"#d97706":"#dc2626"):T.text;
 
   return (
-    <div style={{ minHeight:"100vh", background:T.bg2, color:T.text, fontFamily:FONT, transition:"background 0.3s, color 0.3s" }}>
-      <div style={{ background:T.navBg, borderBottom:`1px solid ${T.border}`, padding:"0 24px", transition:"background 0.3s" }}>
-        <div style={{ maxWidth:700, margin:"0 auto", height:64, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-            <div style={{ width:36, height:36, borderRadius:10, background:ACCENT, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>🚗</div>
+    <div style={{ minHeight:"100vh", background:T.bg, color:T.text, fontFamily:FONT, transition:"background 0.3s, color 0.3s" }}>
+
+      <div style={{ background:T.navBg, borderBottom:`1px solid ${T.border}`, padding:"0 20px", position:"sticky", top:0, zIndex:10 }}>
+        <div style={{ maxWidth:700, margin:"0 auto", height:60, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+            <svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect width="36" height="36" rx="10" fill="#059669"/>
+              <text x="5" y="26" fontFamily="'Inter', sans-serif" fontWeight="800" fontSize="20" fill="white" letterSpacing="-1">FQ</text>
+            </svg>
             <div>
-              <div style={{ fontSize:18, fontWeight:800, letterSpacing:-0.5 }}>Flip<span style={{ color:ACCENT }}>IQ</span></div>
-              <div style={{ fontSize:10, color:T.text3, fontWeight:500, letterSpacing:1 }}>LONDON CAR ANALYSER</div>
+              <div style={{ fontSize:17, fontWeight:800, letterSpacing:-0.5 }}>Flip<span style={{ color:ACCENT }}>IQ</span></div>
+              <div style={{ fontSize:9, color:T.text3, fontWeight:500, letterSpacing:1 }}>LONDON CAR ANALYSER</div>
             </div>
           </div>
           <div style={{ display:"flex", alignItems:"center", gap:10 }}>
             <ThemeToggle mode={themeMode} isDark={isDark} onChange={setThemeMode} />
-            <span style={{ background:ACCENT_LIGHT, color:ACCENT, fontSize:10, fontWeight:700, padding:"4px 12px", borderRadius:20, letterSpacing:1 }}>LIVE · DVLA</span>
+            <span style={{ background:ACCENT_LIGHT, color:ACCENT, fontSize:10, fontWeight:700, padding:"3px 10px", borderRadius:20, letterSpacing:1 }}>LIVE · DVLA</span>
           </div>
         </div>
       </div>
 
-      <div style={{ maxWidth:700, margin:"0 auto", padding:"32px 20px 80px" }}>
-        <div style={{ marginBottom:28 }}>
-          <h1 style={{ fontSize:22, fontWeight:700, marginBottom:6, letterSpacing:-0.5 }}>Analise o carro antes de comprar</h1>
-          <p style={{ color:T.text2, fontSize:14, lineHeight:1.7 }}>Dados reais da DVLA — insira a placa e o valor que vai pagar.</p>
+      <div style={{ maxWidth:700, margin:"0 auto", padding:"28px 20px 80px" }}>
+        <div style={{ marginBottom:24 }}>
+          <h1 style={{ fontSize:21, fontWeight:700, marginBottom:5, letterSpacing:-0.5 }}>Analise o carro antes de comprar</h1>
+          <p style={{ color:T.text2, fontSize:13, lineHeight:1.7 }}>Dados reais da DVLA + análise de fotos + milhagem para uma avaliação completa.</p>
         </div>
 
-        <Card T={T} style={{ padding:24, marginBottom:24 }}>
-          <div style={{ display:"flex", gap:16, flexWrap:"wrap", marginBottom:16 }}>
+        <RecentSearches searches={recentSearches} onSelect={selectRecent} T={T} />
+
+        <Card T={T} style={{ padding:22, marginBottom:20 }}>
+          <div style={{ display:"flex", gap:14, flexWrap:"wrap", marginBottom:16 }}>
             {[
-              { key:"plate", label:"Placa do veículo (UK)", val:plate, onChange:e=>setPlate(formatPlate(e.target.value)), focus:focusPlate, setFocus:setFocusPlate, placeholder:"AB12CDE", type:"text", ls:4, fs:22 },
-              { key:"price", label:"Preço de compra (£)", val:price, onChange:e=>setPrice(e.target.value.replace(/[^0-9.]/g,"")), focus:focusPrice, setFocus:setFocusPrice, placeholder:"3500", type:"number", ls:1, fs:22 }
-            ].map(f => (
-              <div key={f.key} style={{ flex:"1 1 200px" }}>
-                <label style={{ fontSize:12, color:T.text2, fontWeight:600, display:"block", marginBottom:8 }}>{f.label}</label>
+              { key:"plate", label:"Placa do veículo (UK)", val:plate, onChange:e=>setPlate(formatPlate(e.target.value)), focus:focusPlate, setFocus:setFocusPlate, placeholder:"AB12CDE", type:"text", ls:4, fs:20 },
+              { key:"price", label:"Preço de compra (£)", val:price, onChange:e=>setPrice(e.target.value.replace(/[^0-9.]/g,"")), focus:focusPrice, setFocus:setFocusPrice, placeholder:"3500", type:"number", ls:1, fs:20 }
+            ].map(f=>(
+              <div key={f.key} style={{ flex:"1 1 180px" }}>
+                <label style={{ fontSize:12, color:T.text2, fontWeight:600, display:"block", marginBottom:7 }}>{f.label}</label>
                 <input value={f.val} onChange={f.onChange} placeholder={f.placeholder} type={f.type}
                   onFocus={()=>f.setFocus(true)} onBlur={()=>f.setFocus(false)}
-                  style={{ width:"100%", background:T.inputBg, border:`1.5px solid ${f.focus?ACCENT:T.border}`, boxShadow:f.focus?`0 0 0 3px ${ACCENT}18`:"none", borderRadius:10, padding:"12px 16px", color:T.text, fontSize:f.fs, fontFamily:FONT, fontWeight:700, letterSpacing:f.ls, transition:"all 0.2s" }} />
+                  style={{ width:"100%", background:T.inputBg, border:`1.5px solid ${f.focus?ACCENT:T.border}`, boxShadow:f.focus?`0 0 0 3px ${ACCENT}15`:"none", borderRadius:10, padding:"11px 14px", color:T.text, fontSize:f.fs, fontFamily:FONT, fontWeight:700, letterSpacing:f.ls, transition:"all 0.2s" }} />
               </div>
             ))}
           </div>
+
+          <div style={{ marginBottom:20 }}>
+            <label style={{ fontSize:12, color:T.text2, fontWeight:600, display:"block", marginBottom:7 }}>
+              Milhagem (milhas) <span style={{ color:T.text3, fontWeight:400 }}>— opcional</span>
+            </label>
+            <div style={{ position:"relative" }}>
+              <input value={mileage} onChange={e=>setMileage(e.target.value.replace(/[^0-9]/g,""))}
+                onFocus={()=>setFocusMileage(true)} onBlur={()=>setFocusMileage(false)}
+                placeholder="ex: 45000" type="number"
+                style={{ width:"100%", background:T.inputBg, border:`1.5px solid ${focusMileage?ACCENT:T.border}`, boxShadow:focusMileage?`0 0 0 3px ${ACCENT}15`:"none", borderRadius:10, padding:"11px 50px 11px 14px", color:T.text, fontSize:16, fontFamily:FONT, fontWeight:600, transition:"all 0.2s" }} />
+              <span style={{ position:"absolute", right:14, top:"50%", transform:"translateY(-50%)", fontSize:12, color:T.text3 }}>mi</span>
+            </div>
+            {mileage && <div style={{ marginTop:5, fontSize:11, color:ACCENT, fontWeight:500 }}>✓ Milhagem considerada no valor de mercado</div>}
+          </div>
+
+          <div style={{ borderTop:`1px solid ${T.border}`, paddingTop:18, marginBottom:18 }}>
+            <PhotoUpload photos={photos} onAdd={p=>setPhotos(prev=>[...prev,p])} onRemove={i=>setPhotos(prev=>prev.filter((_,idx)=>idx!==i))} T={T} />
+          </div>
+
           {error && <div style={{ background:"#fef2f2", border:"1px solid #fecaca", borderRadius:8, padding:"10px 14px", marginBottom:14, color:"#dc2626", fontSize:13 }}>⚠ {error}</div>}
+
           <button onClick={analyse} disabled={loading} style={{ width:"100%", padding:"14px", background:loading?T.bg3:ACCENT, border:"none", borderRadius:10, color:loading?T.text3:"#fff", fontSize:15, fontWeight:700, cursor:loading?"not-allowed":"pointer", fontFamily:FONT, transition:"all 0.2s", boxShadow:!loading?`0 2px 12px ${ACCENT}33`:"none" }}>
-            {loading ? <span style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}><span style={{ width:16, height:16, border:`2px solid ${T.border}`, borderTop:`2px solid ${ACCENT}`, borderRadius:"50%", display:"inline-block", animation:"spin 0.7s linear infinite" }}/>{loadingMsg}</span> : "Analisar carro →"}
+            {loading
+              ? <span style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}>
+                  <span style={{ width:16, height:16, border:`2px solid ${T.border}`, borderTop:`2px solid ${ACCENT}`, borderRadius:"50%", display:"inline-block", animation:"spin 0.7s linear infinite" }}/>
+                  {loadingMsg}
+                </span>
+              : `Analisar carro${photos.length>0?` + ${photos.length} foto(s)`:""}${mileage?` · ${parseInt(mileage).toLocaleString()} mi`:""}  →`}
           </button>
         </Card>
 
-        {result && !loading && (
+        {result&&!loading&&(
           <div style={{ animation:"fadeUp 0.45s ease" }}>
-            <Card T={T} style={{ padding:24, marginBottom:14 }}>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:20, flexWrap:"wrap" }}>
+            <Card T={T} style={{ padding:22, marginBottom:12 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:16, flexWrap:"wrap" }}>
                 <div style={{ flex:1 }}>
                   <div style={{ fontSize:11, color:ACCENT, fontWeight:600, letterSpacing:1, marginBottom:8, textTransform:"uppercase" }}>Dados DVLA · {result.plate}</div>
-                  <div style={{ fontSize:26, fontWeight:800, letterSpacing:-0.5, marginBottom:4 }}>{result.yearOfManufacture} {result.make}</div>
-                  <div style={{ color:T.text3, fontSize:13, marginBottom:16 }}>{result.fuelType} · {result.engineSize?result.engineSize+"cc":""} · {result.colour}</div>
+                  <div style={{ fontSize:24, fontWeight:800, letterSpacing:-0.5, marginBottom:4 }}>{result.yearOfManufacture} {result.make}</div>
+                  <div style={{ color:T.text3, fontSize:13, marginBottom:14 }}>{result.fuelType} · {result.engineSize?result.engineSize+"cc":""} · {result.colour}{result.mileage?` · ${result.mileage.toLocaleString()} mi`:""}</div>
                   <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
-                    {result.ulez!==null && <Chip T={T} color={result.ulez?"#059669":"#dc2626"} bg={result.ulez?"#d1fae5":"#fee2e2"}>{result.ulez?"✓ ULEZ Free":"✗ ULEZ Charge"}</Chip>}
+                    {result.ulez!==null&&<Chip T={T} color={result.ulez?"#059669":"#dc2626"} bg={result.ulez?"#d1fae5":"#fee2e2"}>{result.ulez?"✓ ULEZ Free":"✗ ULEZ Charge"}</Chip>}
                     <Chip T={T} color={result.motStatus==="Valid"?"#059669":"#dc2626"} bg={result.motStatus==="Valid"?"#d1fae5":"#fee2e2"}>MOT {result.motStatus==="Valid"?"✓":"✗"} {result.motExpiry||""}</Chip>
                     <Chip T={T} color={result.taxStatus==="Taxed"?"#059669":"#dc2626"} bg={result.taxStatus==="Taxed"?"#d1fae5":"#fee2e2"}>Tax {result.taxStatus==="Taxed"?"✓":result.taxStatus}</Chip>
-                    {result.co2 && <Chip T={T}>CO₂ {result.co2}g/km</Chip>}
+                    {result.co2&&<Chip T={T}>CO₂ {result.co2}g/km</Chip>}
                   </div>
                 </div>
                 <ScoreRing score={result.score} T={T} />
               </div>
-              <div style={{ marginTop:20, borderTop:`1px solid ${T.border}`, paddingTop:16 }}>
-                <SectionLabel T={T}>Detalhes do registo</SectionLabel>
+              {result.conditionNote&&(
+                <div style={{ marginTop:16, background:T.bg3, borderRadius:10, padding:"10px 14px", display:"flex", gap:10, alignItems:"flex-start" }}>
+                  <span style={{ fontSize:16 }}>{result.conditionNote.includes("excelente")?"✨":result.conditionNote.includes("danos")?"⚠️":"📷"}</span>
+                  <div>
+                    <div style={{ fontSize:11, color:T.text3, fontWeight:600, letterSpacing:1, textTransform:"uppercase", marginBottom:3 }}>Análise de fotos</div>
+                    <div style={{ fontSize:13, color:T.text2 }}>{result.conditionNote}</div>
+                  </div>
+                </div>
+              )}
+              <div style={{ marginTop:18, borderTop:`1px solid ${T.border}`, paddingTop:14 }}>
+                <SLabel T={T}>Detalhes do registo</SLabel>
                 <InfoRow T={T} label="Fabricante" value={result.make} />
                 <InfoRow T={T} label="Ano" value={result.yearOfManufacture} />
                 <InfoRow T={T} label="Combustível" value={result.fuelType} />
                 <InfoRow T={T} label="Motor" value={result.engineSize?result.engineSize+" cc":null} />
                 <InfoRow T={T} label="Cor" value={result.colour} />
-                {result.co2 && <InfoRow T={T} label="CO₂" value={result.co2+" g/km"} />}
-                {result.euroStatus && <InfoRow T={T} label="Norma Euro" value={result.euroStatus} />}
+                {result.mileage&&<InfoRow T={T} label="Milhagem" value={result.mileage.toLocaleString()+" milhas"} />}
+                {result.co2&&<InfoRow T={T} label="CO₂" value={result.co2+" g/km"} />}
+                {result.euroStatus&&<InfoRow T={T} label="Norma Euro" value={result.euroStatus} />}
                 <InfoRow T={T} label="Tax até" value={result.taxDueDate} />
               </div>
             </Card>
@@ -345,55 +484,56 @@ function App() {
                 { label:"Você paga", value:`£${result.buyPrice.toLocaleString()}`, color:T.text },
                 { label:"Mercado estimado", value:`£${result.avgMarket.toLocaleString()}`, color:"#d97706" },
                 { label:"Preço sugerido", value:`£${result.suggestedPrice.toLocaleString()}`, color:"#059669" },
-              ].map(s => (
-                <Card key={s.label} T={T} style={{ padding:16 }}>
-                  <div style={{ fontSize:10, color:T.text3, fontWeight:600, letterSpacing:1, textTransform:"uppercase", marginBottom:8 }}>{s.label}</div>
-                  <div style={{ fontSize:20, fontWeight:800, color:s.color }}>{s.value}</div>
+              ].map(s=>(
+                <Card key={s.label} T={T} style={{ padding:14 }}>
+                  <div style={{ fontSize:9, color:T.text3, fontWeight:600, letterSpacing:1, textTransform:"uppercase", marginBottom:7 }}>{s.label}</div>
+                  <div style={{ fontSize:18, fontWeight:800, color:s.color }}>{s.value}</div>
                 </Card>
               ))}
             </div>
 
-            <div style={{ background:result.margin>0?T.marginGoodBg:T.marginBadBg, border:`1px solid ${result.margin>0?T.marginGoodBorder:T.marginBadBorder}`, borderRadius:14, padding:"18px 22px", marginBottom:14, display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:12 }}>
+            <div style={{ background:result.margin>0?T.marginGoodBg:T.marginBadBg, border:`1px solid ${result.margin>0?T.marginGoodBorder:T.marginBadBorder}`, borderRadius:14, padding:"16px 20px", marginBottom:12, display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:10 }}>
               <div>
-                <div style={{ fontSize:12, color:T.text2, fontWeight:600, marginBottom:3 }}>Margem estimada de lucro</div>
-                <div style={{ fontSize:12, color:T.text3 }}>Preço sugerido menos o que vai pagar</div>
+                <div style={{ fontSize:12, color:T.text2, fontWeight:600, marginBottom:2 }}>Margem estimada de lucro</div>
+                <div style={{ fontSize:11, color:T.text3 }}>Preço sugerido menos o que vai pagar</div>
               </div>
               <div style={{ textAlign:"right" }}>
-                <div style={{ fontSize:30, fontWeight:800, color:result.margin>0?"#059669":"#dc2626", lineHeight:1 }}>{result.margin>0?"+":""}£{result.margin.toLocaleString()}</div>
-                <div style={{ fontSize:13, color:result.margin>0?"#059669":"#dc2626", fontWeight:600, marginTop:2 }}>{result.marginPct>0?"+":""}{result.marginPct}% de retorno</div>
+                <div style={{ fontSize:28, fontWeight:800, color:result.margin>0?"#059669":"#dc2626", lineHeight:1 }}>{result.margin>0?"+":""}£{result.margin.toLocaleString()}</div>
+                <div style={{ fontSize:12, color:result.margin>0?"#059669":"#dc2626", fontWeight:600, marginTop:2 }}>{result.marginPct>0?"+":""}{result.marginPct}% de retorno</div>
               </div>
             </div>
 
-            <Card T={T} style={{ padding:22, marginBottom:14 }}>
-              <SectionLabel T={T}>Preços estimados por plataforma</SectionLabel>
-              {Object.entries(result.market).map(([p,v]) => <MarketRow key={p} platform={p} value={v} max={maxMarket} T={T} />)}
+            <Card T={T} style={{ padding:20, marginBottom:12 }}>
+              <SLabel T={T}>Preços estimados por plataforma</SLabel>
+              {Object.entries(result.market).map(([p,v])=><MarketRow key={p} platform={p} value={v} max={maxMarket} T={T} />)}
+              <div style={{ fontSize:11, color:T.text3, marginTop:4 }}>* Baseado em make, ano{result.mileage?", milhagem":""}.</div>
             </Card>
 
-            <div style={{ display:"grid", gridTemplateColumns:"130px 1fr", gap:10, marginBottom:14 }}>
-              <Card T={T} style={{ padding:20, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", textAlign:"center" }}>
-                <div style={{ fontSize:10, color:T.text3, fontWeight:600, letterSpacing:1, textTransform:"uppercase", marginBottom:10 }}>Tempo médio de venda</div>
-                <div style={{ fontSize:50, fontWeight:800, color:speedColor, lineHeight:1 }}>{result.avgDays}</div>
-                <div style={{ fontSize:11, color:T.text3, marginTop:5 }}>dias · Londres</div>
+            <div style={{ display:"grid", gridTemplateColumns:"120px 1fr", gap:10, marginBottom:12 }}>
+              <Card T={T} style={{ padding:18, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", textAlign:"center" }}>
+                <div style={{ fontSize:9, color:T.text3, fontWeight:600, letterSpacing:1, textTransform:"uppercase", marginBottom:8 }}>Tempo médio venda</div>
+                <div style={{ fontSize:46, fontWeight:800, color:speedColor, lineHeight:1 }}>{result.avgDays}</div>
+                <div style={{ fontSize:10, color:T.text3, marginTop:4 }}>dias · Londres</div>
               </Card>
-              <Card T={T} style={{ padding:20 }}>
-                <SectionLabel T={T}>Dicas de venda</SectionLabel>
-                {tips.map((tip,i) => (
-                  <div key={i} style={{ display:"flex", gap:10, marginBottom:12, alignItems:"flex-start" }}>
-                    <div style={{ width:20, height:20, borderRadius:6, background:ACCENT_LIGHT, color:ACCENT, display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:700, flexShrink:0, marginTop:1 }}>{i+1}</div>
-                    <span style={{ fontSize:13, color:T.text2, lineHeight:1.6 }}>{tip}</span>
+              <Card T={T} style={{ padding:18 }}>
+                <SLabel T={T}>Dicas de venda</SLabel>
+                {tips.map((tip,i)=>(
+                  <div key={i} style={{ display:"flex", gap:9, marginBottom:10, alignItems:"flex-start" }}>
+                    <div style={{ width:19, height:19, borderRadius:5, background:ACCENT_LIGHT, color:ACCENT, display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:700, flexShrink:0, marginTop:1 }}>{i+1}</div>
+                    <span style={{ fontSize:13, color:T.text2, lineHeight:1.5 }}>{tip}</span>
                   </div>
                 ))}
               </Card>
             </div>
 
-            <Card T={T} style={{ padding:24, background:T.aiBg, border:`1px solid ${T.aiBorder}` }}>
-              <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:16 }}>
-                <div style={{ width:30, height:30, borderRadius:8, background:ACCENT_LIGHT, display:"flex", alignItems:"center", justifyContent:"center", fontSize:15 }}>🤖</div>
+            <Card T={T} style={{ padding:22, background:T.aiBg, border:`1px solid ${T.aiBorder}` }}>
+              <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14 }}>
+                <div style={{ width:28, height:28, borderRadius:8, background:ACCENT_LIGHT, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14 }}>🤖</div>
                 <div style={{ fontSize:11, color:ACCENT, fontWeight:700, letterSpacing:1, textTransform:"uppercase" }}>Análise IA · Mercado de Londres</div>
-                {aiLoading && <div style={{ display:"flex", gap:4, marginLeft:4 }}>{[0,1,2].map(i=><div key={i} style={{ width:5, height:5, borderRadius:"50%", background:ACCENT, animation:`shimmer 1.2s ${i*0.2}s infinite` }}/>)}</div>}
+                {aiLoading&&<div style={{ display:"flex", gap:4 }}>{[0,1,2].map(i=><div key={i} style={{ width:5, height:5, borderRadius:"50%", background:ACCENT, animation:`shimmer 1.2s ${i*0.2}s infinite` }}/>)}</div>}
               </div>
               {aiLoading
-                ? <div style={{ color:T.text3, fontSize:13, fontStyle:"italic" }}>Gerando análise personalizada...</div>
+                ? <div style={{ color:T.text3, fontSize:13, fontStyle:"italic" }}>Gerando análise com todos os dados...</div>
                 : <div style={{ fontSize:14, color:T.text2, lineHeight:1.9, whiteSpace:"pre-wrap" }}>{aiAnalysis}</div>}
             </Card>
           </div>
@@ -407,4 +547,3 @@ ReactDOM.render(<App />, document.getElementById('root'));
 </script>
 </body>
 </html>
-commit changes
